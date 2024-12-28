@@ -42,6 +42,10 @@ class PageMapping : public AbstractFTL {
   std::unordered_map<uint64_t, std::vector<std::pair<uint32_t, uint32_t>>>
       table;
   std::unordered_map<uint32_t, Block> blocks;
+  /*death time relatrd structure start*/
+  std::unordered_map<uint64_t, uint32_t> deathTimeToBlock;
+  std::unordered_map<uint64_t, std::vector<uint64_t>> deathTimeToLPNs;
+  /*death time related strcture ending*/
   std::list<Block> freeBlocks;
   uint32_t nFreeBlocks;  // For some libraries which std::list::size() is O(n)
   std::vector<uint32_t> lastFreeBlock;
@@ -51,6 +55,8 @@ class PageMapping : public AbstractFTL {
   bool bReclaimMore;
   bool bRandomTweak;
   uint32_t bitsetSize;
+
+  double currentWA;             
 
   struct {
     uint64_t gcCount;
@@ -68,6 +74,7 @@ class PageMapping : public AbstractFTL {
   void selectVictimBlock(std::vector<uint32_t> &, uint64_t &);
   void doGarbageCollection(std::vector<uint32_t> &, uint64_t &);
 
+  void invalidateExpiredPages(uint64_t);
   float calculateWearLeveling();
   void calculateTotalPages(uint64_t &, uint64_t &);
 
@@ -77,6 +84,7 @@ class PageMapping : public AbstractFTL {
   void eraseInternal(PAL::Request &, uint64_t &);
 
  public:
+  uint64_t hostWrittenPages = 0;
   PageMapping(ConfigReader &, Parameter &, PAL::PAL *, DRAM::AbstractDRAM *);
   ~PageMapping();
 
@@ -93,6 +101,19 @@ class PageMapping : public AbstractFTL {
   void getStatList(std::vector<Stats> &, std::string) override;
   void getStatValues(std::vector<double> &) override;
   void resetStatValues() override;
+  double calculateWriteAmplification() {
+      if (hostWrittenPages == 0) {
+          return 0.0;
+      }
+      double totalWrites = (double)hostWrittenPages + (double)stat.validPageCopies;
+      debugprint(LOG_FTL_PAGE_MAPPING,
+      "Total Writes pages: %.0f | Hostwritten pages: %" PRIu64 " | GC copies: %.0f",
+      totalWrites,
+      hostWrittenPages,
+      (double)stat.validPageCopies); 
+
+      return totalWrites / (double)hostWrittenPages;
+  }
 };
 
 }  // namespace FTL

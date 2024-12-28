@@ -77,12 +77,14 @@ void HIL::write(Request &req) {
     pReq->reqID = ++reqCount;
 
     debugprint(LOG_HIL,
-               "WRITE | REQ %7u | LCA %" PRIu64 " + %" PRIu64 " | BYTE %" PRIu64
-               " + %" PRIu64,
+               "WRITE | DEATHTIME=0x%X | REQ %7u | LCA %" PRIu64 " + %" PRIu64 " | BYTE %" PRIu64
+               " + %" PRIu64,pReq->deathTime,
                pReq->reqID, pReq->range.slpn, pReq->range.nlp, pReq->offset,
                pReq->length);
 
     ICL::Request reqInternal(*pReq);
+    debugprint(LOG_HIL,
+               "TEST | DEATHTIME=0x%X ",reqInternal.deathTime);
     pICL->write(reqInternal, tick);
 
     stat.request[1]++;

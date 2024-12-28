@@ -286,8 +286,10 @@ void Namespace::write(SQEntryWrapper &req, RequestFunction &func) {
   bool err = false;
 
   CQEntryWrapper resp(req);
+
   uint64_t slba = ((uint64_t)req.entry.dword11 << 32) | req.entry.dword10;
   uint16_t nlb = (req.entry.dword12 & 0xFFFF) + 1;
+  uint32_t deathtime = req.entry.dword13;
 
   if (!attached) {
     err = true;
@@ -300,9 +302,9 @@ void Namespace::write(SQEntryWrapper &req, RequestFunction &func) {
   }
 
   debugprint(LOG_HIL_NVME,
-             "NVM     | WRITE | SQ %u:%u | CID %u | NSID %-5d | %" PRIX64
-             " + %d",
-             req.sqID, req.sqUID, req.entry.dword0.commandID, nsid, slba, nlb);
+             "NVM     | WRITE | SQ %u:%u | CID %u | NSID %-5d | SLBA=0x%" PRIX64
+           " + %d blocks | DEATHTIME=0x%X",
+             req.sqID, req.sqUID, req.entry.dword0.commandID, nsid, slba, nlb, deathtime);
 
   if (!err) {
     DMAFunction doRead = [this](uint64_t tick, void *context) {
@@ -349,7 +351,7 @@ void Namespace::write(SQEntryWrapper &req, RequestFunction &func) {
                             context);
       }
 
-      pParent->write(this, pContext->slba, pContext->nlb, dmaDone, context);
+      pParent->write(this, pContext->slba, pContext->nlb, pContext->deathtime, dmaDone, context);
     };
 
     IOContext *pContext = new IOContext(func, resp);
@@ -357,6 +359,7 @@ void Namespace::write(SQEntryWrapper &req, RequestFunction &func) {
     pContext->beginAt = getTick();
     pContext->slba = slba;
     pContext->nlb = nlb;
+    pContext->deathtime = deathtime;
 
     CPUContext *pCPU =
         new CPUContext(doRead, pContext, CPU::NVME__NAMESPACE, CPU::WRITE);

@@ -50,8 +50,11 @@ typedef struct _Request {
   DMAFunction function;
   void *context;
 
+  uint64_t deathTime; // adding death time at the top level
+
   _Request();
   _Request(DMAFunction &, void *);
+  _Request(DMAFunction &, void *, uint64_t dt);
 
   bool operator()(const _Request &a, const _Request &b);
 } Request;
@@ -67,6 +70,8 @@ typedef struct _Request {
   uint64_t length;
   LPNRange range;
 
+  uint64_t deathTime; // adding death time 
+
   _Request();
   _Request(HIL::Request &);
 } Request;
@@ -80,6 +85,8 @@ typedef struct _Request {
   uint64_t reqSubID;
   uint64_t lpn;
   Bitset ioFlag;
+
+  uint64_t deathTime;
 
   _Request(uint32_t);
   _Request(uint32_t, ICL::Request &);
@@ -96,6 +103,8 @@ typedef struct _Request {
   uint32_t pageIndex;
   Bitset ioFlag;
 
+  uint64_t deathTime;
+  
   _Request(uint32_t);
   _Request(FTL::Request &);
 } Request;

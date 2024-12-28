@@ -503,120 +503,126 @@ void PageMapping::doGarbageCollection(std::vector<uint32_t> &blocksToReclaim,
   uint64_t writeFinishedAt = tick;
   uint64_t eraseFinishedAt = tick;
 
-  if (blocksToReclaim.size() == 0) {
-    return;
-  }
-
-  // For all blocks to reclaim, collecting request structure only
-  for (auto &iter : blocksToReclaim) {
-    auto block = blocks.find(iter);
-
-    if (block == blocks.end()) {
-      panic("Invalid block");
+    if (blocksToReclaim.size() == 0) {
+      return;
     }
 
-    // Copy valid pages to free block
-    for (uint32_t pageIndex = 0; pageIndex < param.pagesInBlock; pageIndex++) {
-      // Valid?
-      if (block->second.getPageInfo(pageIndex, lpns, bit)) {
-        if (!bRandomTweak) {
-          bit.set();
-        }
+    // For all blocks to reclaim, collecting request structure only
+    for (auto &iter : blocksToReclaim) {
+      auto block = blocks.find(iter);
 
-        // Retrive free block
-        auto freeBlock = blocks.find(getLastFreeBlock(bit));
-
-        // Issue Read
-        req.blockIndex = block->first;
-        req.pageIndex = pageIndex;
-        req.ioFlag = bit;
-
-        readRequests.push_back(req);
-
-        // Update mapping table
-        uint32_t newBlockIdx = freeBlock->first;
-
-        for (uint32_t idx = 0; idx < bitsetSize; idx++) {
-          if (bit.test(idx)) {
-            // Invalidate
-            block->second.invalidate(pageIndex, idx);
-
-            auto mappingList = table.find(lpns.at(idx));
-
-            if (mappingList == table.end()) {
-              panic("Invalid mapping table entry");
-            }
-
-            pDRAM->read(&(*mappingList), 8 * param.ioUnitInPage, tick);
-
-            auto &mapping = mappingList->second.at(idx);
-
-            uint32_t newPageIdx = freeBlock->second.getNextWritePageIndex(idx);
-
-            mapping.first = newBlockIdx;
-            mapping.second = newPageIdx;
-
-            freeBlock->second.write(newPageIdx, lpns.at(idx), idx, beginAt);
-
-            // Issue Write
-            req.blockIndex = newBlockIdx;
-            req.pageIndex = newPageIdx;
-
-            if (bRandomTweak) {
-              req.ioFlag.reset();
-              req.ioFlag.set(idx);
-            }
-            else {
-              req.ioFlag.set();
-            }
-
-            writeRequests.push_back(req);
-
-            stat.validPageCopies++;
-          }
-        }
-
-        stat.validSuperPageCopies++;
+      if (block == blocks.end()) {
+        panic("Invalid block");
       }
+
+      // Copy valid pages to free block
+      for (uint32_t pageIndex = 0; pageIndex < param.pagesInBlock; pageIndex++) {
+        // Valid?
+        if (block->second.getPageInfo(pageIndex, lpns, bit)) {
+          if (!bRandomTweak) {
+            bit.set();
+          }
+
+          // Retrive free block
+          auto freeBlock = blocks.find(getLastFreeBlock(bit));
+
+          // Issue Read
+          req.blockIndex = block->first;
+          req.pageIndex = pageIndex;
+          req.ioFlag = bit;
+
+          readRequests.push_back(req);
+
+          // Update mapping table
+          uint32_t newBlockIdx = freeBlock->first;
+
+          for (uint32_t idx = 0; idx < bitsetSize; idx++) {
+            if (bit.test(idx)) {
+              // Invalidate
+              block->second.invalidate(pageIndex, idx);
+
+              auto mappingList = table.find(lpns.at(idx));
+
+              if (mappingList == table.end()) {
+                panic("Invalid mapping table entry");
+              }
+
+              pDRAM->read(&(*mappingList), 8 * param.ioUnitInPage, tick);
+
+              auto &mapping = mappingList->second.at(idx);
+
+              uint32_t newPageIdx = freeBlock->second.getNextWritePageIndex(idx);
+
+              mapping.first = newBlockIdx;
+              mapping.second = newPageIdx;
+
+              freeBlock->second.write(newPageIdx, lpns.at(idx), idx, beginAt);
+
+              // Issue Write
+              req.blockIndex = newBlockIdx;
+              req.pageIndex = newPageIdx;
+
+              if (bRandomTweak) {
+                req.ioFlag.reset();
+                req.ioFlag.set(idx);
+              }
+              else {
+                req.ioFlag.set();
+              }
+
+              writeRequests.push_back(req);
+
+              stat.validPageCopies++;
+            }
+          }
+
+          stat.validSuperPageCopies++;
+        }
+      }
+
+      // Erase block
+      req.blockIndex = block->first;
+      req.pageIndex = 0;
+      req.ioFlag.set();
+
+      eraseRequests.push_back(req);
     }
 
-    // Erase block
-    req.blockIndex = block->first;
-    req.pageIndex = 0;
-    req.ioFlag.set();
+    // Do actual I/O here
+    // This handles PAL2 limitation (SIGSEGV, infinite loop, or so-on)
+    for (auto &iter : readRequests) {
+      beginAt = tick;
 
-    eraseRequests.push_back(req);
+      pPAL->read(iter, beginAt);
+
+      readFinishedAt = MAX(readFinishedAt, beginAt);
+    }
+
+    for (auto &iter : writeRequests) {
+      beginAt = readFinishedAt;
+
+      pPAL->write(iter, beginAt);
+
+      writeFinishedAt = MAX(writeFinishedAt, beginAt);
+    }
+
+    for (auto &iter : eraseRequests) {
+      beginAt = readFinishedAt;
+
+      eraseInternal(iter, beginAt);
+
+      eraseFinishedAt = MAX(eraseFinishedAt, beginAt);
+    }
+
+    tick = MAX(writeFinishedAt, eraseFinishedAt);
+    tick += applyLatency(CPU::FTL__PAGE_MAPPING, CPU::DO_GARBAGE_COLLECTION);
+    
+    // =============== 於GC結束後計算並印出 WA ===============
+
+    double wa = calculateWriteAmplification(); 
+    currentWA = wa; 
+    debugprint(LOG_FTL_PAGE_MAPPING, "GC Done. Current WA = %.4f", wa);
   }
-
-  // Do actual I/O here
-  // This handles PAL2 limitation (SIGSEGV, infinite loop, or so-on)
-  for (auto &iter : readRequests) {
-    beginAt = tick;
-
-    pPAL->read(iter, beginAt);
-
-    readFinishedAt = MAX(readFinishedAt, beginAt);
-  }
-
-  for (auto &iter : writeRequests) {
-    beginAt = readFinishedAt;
-
-    pPAL->write(iter, beginAt);
-
-    writeFinishedAt = MAX(writeFinishedAt, beginAt);
-  }
-
-  for (auto &iter : eraseRequests) {
-    beginAt = readFinishedAt;
-
-    eraseInternal(iter, beginAt);
-
-    eraseFinishedAt = MAX(eraseFinishedAt, beginAt);
-  }
-
-  tick = MAX(writeFinishedAt, eraseFinishedAt);
-  tick += applyLatency(CPU::FTL__PAGE_MAPPING, CPU::DO_GARBAGE_COLLECTION);
-}
 
 void PageMapping::readInternal(Request &req, uint64_t &tick) {
   PAL::Request palRequest(req);
@@ -671,6 +677,34 @@ void PageMapping::readInternal(Request &req, uint64_t &tick) {
   }
 }
 
+void PageMapping::invalidateExpiredPages(uint64_t currentTime) {
+    for (auto it = deathTimeToLPNs.begin(); it != deathTimeToLPNs.end();) {
+
+        uint64_t dt = it->first;        
+        if (currentTime >= dt) {
+          debugprint(LOG_FTL_PAGE_MAPPING,
+             "Invalid pages: in the if %X",dt); 
+            std::vector<uint64_t> &lpns = it->second;
+            for (auto &lpn : lpns) {
+                auto mappingList = table.find(lpn);
+                if (mappingList != table.end()) {
+                    for (uint32_t idx = 0; idx < bitsetSize; idx++) {
+                        auto &mapping = mappingList->second.at(idx);
+                        auto blkIt = blocks.find(mapping.first);
+                        if (blkIt != blocks.end()) {
+                            blkIt->second.invalidate(mapping.second, idx);
+                        }
+                    }
+                    table.erase(mappingList);
+                }
+            }
+            it = deathTimeToLPNs.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
 void PageMapping::writeInternal(Request &req, uint64_t &tick, bool sendToPAL) {
   PAL::Request palRequest(req);
   std::unordered_map<uint32_t, Block>::iterator block;
@@ -678,7 +712,32 @@ void PageMapping::writeInternal(Request &req, uint64_t &tick, bool sendToPAL) {
   uint64_t beginAt;
   uint64_t finishedAt = tick;
   bool readBeforeWrite = false;
+  // uint64_t writeDataTime = getTick() + req.deathTime;
+  // debugprint(LOG_FTL_PAGE_MAPPING,
+  //            "Death time | DEATHTIME=0x%X |time = %X", writeDataTime,finishedAt);  
+  uint64_t pagesWrittenThisRequest = req.ioFlag.count();
+  hostWrittenPages += pagesWrittenThisRequest;
+  
+  // uint32_t targetBlock;
+  // if (deathTimeToBlock.find(writeDataTime) == deathTimeToBlock.end()) {
+  //     debugprint(LOG_FTL_PAGE_MAPPING,
+  //            "Page mapping in iF");  
+  //     Bitset ioMap = req.ioFlag; // or set as needed
+  //     targetBlock = getLastFreeBlock(ioMap);
+  //     deathTimeToBlock[writeDataTime] = targetBlock;
+  // } else {
+  //     debugprint(LOG_FTL_PAGE_MAPPING,
+  //            "Page mapping in else"); 
+  //     targetBlock = deathTimeToBlock[writeDataTime];
+  // }
 
+  // deathTimeToLPNs[writeDataTime].push_back(req.lpn);
+
+  // block = blocks.find(targetBlock);
+  // if (block == blocks.end()) {
+  //     panic("No such block 743");
+  // }
+  
   if (mappingList != table.end()) {
     for (uint32_t idx = 0; idx < bitsetSize; idx++) {
       if (req.ioFlag.test(idx) || !bRandomTweak) {
@@ -712,7 +771,7 @@ void PageMapping::writeInternal(Request &req, uint64_t &tick, bool sendToPAL) {
   block = blocks.find(getLastFreeBlock(req.ioFlag));
 
   if (block == blocks.end()) {
-    panic("No such block");
+    panic("No such block 779");
   }
 
   if (sendToPAL) {
@@ -791,6 +850,7 @@ void PageMapping::writeInternal(Request &req, uint64_t &tick, bool sendToPAL) {
     if (!sendToPAL) {
       panic("ftl: GC triggered while in initialization");
     }
+    // invalidateExpiredPages(tick);
 
     std::vector<uint32_t> list;
     uint64_t beginAt = tick;

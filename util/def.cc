@@ -36,7 +36,8 @@ Request::_Request()
       offset(0),
       length(0),
       finishedAt(0),
-      context(nullptr) {}
+      context(nullptr), 
+      deathTime(0) {}
 
 Request::_Request(DMAFunction &f, void *c)
     : reqID(0),
@@ -45,7 +46,18 @@ Request::_Request(DMAFunction &f, void *c)
       length(0),
       finishedAt(0),
       function(f),
-      context(c) {}
+      context(c),
+      deathTime(0) {}
+
+Request::_Request(DMAFunction &f, void *c, uint64_t dt)
+    : reqID(0),
+      reqSubID(0),
+      offset(0),
+      length(0),
+      finishedAt(0),
+      function(f),
+      context(c),
+      deathTime(dt) {}
 
 bool Request::operator()(const Request &a, const Request &b) {
   return a.finishedAt > b.finishedAt;
@@ -55,27 +67,29 @@ bool Request::operator()(const Request &a, const Request &b) {
 
 namespace ICL {
 
-Request::_Request() : reqID(0), reqSubID(0), offset(0), length(0) {}
+Request::_Request() : reqID(0), reqSubID(0), offset(0), length(0), deathTime(0) {}
 
 Request::_Request(HIL::Request &r)
     : reqID(r.reqID),
       reqSubID(r.reqSubID),
       offset(r.offset),
       length(r.length),
-      range(r.range) {}
+      range(r.range),
+      deathTime(r.deathTime) {}
 
 }  // namespace ICL
 
 namespace FTL {
 
 Request::_Request(uint32_t iocount)
-    : reqID(0), reqSubID(0), lpn(0), ioFlag(iocount) {}
+    : reqID(0), reqSubID(0), lpn(0), ioFlag(iocount), deathTime(0) {}
 
 Request::_Request(uint32_t iocount, ICL::Request &r)
     : reqID(r.reqID),
       reqSubID(r.reqSubID),
       lpn(r.range.slpn / iocount),
-      ioFlag(iocount) {
+      ioFlag(iocount),
+      deathTime(r.deathTime) {
   ioFlag.set(r.range.slpn % iocount);
 }
 
@@ -84,14 +98,15 @@ Request::_Request(uint32_t iocount, ICL::Request &r)
 namespace PAL {
 
 Request::_Request(uint32_t iocount)
-    : reqID(0), reqSubID(0), blockIndex(0), pageIndex(0), ioFlag(iocount) {}
+    : reqID(0), reqSubID(0), blockIndex(0), pageIndex(0), ioFlag(iocount), deathTime(0) {}
 
 Request::_Request(FTL::Request &r)
     : reqID(r.reqID),
       reqSubID(r.reqSubID),
       blockIndex(0),
       pageIndex(0),
-      ioFlag(r.ioFlag) {}
+      ioFlag(r.ioFlag),
+      deathTime(r.deathTime) {}
 
 }  // namespace PAL
 

@@ -551,7 +551,7 @@ bool GenericCache::write(Request &req, uint64_t &tick) {
   bool dirty = false;
 
   debugprint(LOG_ICL_GENERIC_CACHE,
-             "WRITE | REQ %7u-%-4u | LCA %" PRIu64 " | SIZE %" PRIu64,
+             "WRITE | Deathtime 0x%X REQ %7u-%-4u | LCA %" PRIu64 " | SIZE %" PRIu64,req.deathTime,
              req.reqID, req.reqSubID, req.range.slpn, req.length);
 
   FTL::Request reqInternal(lineCountInSuperPage, req);

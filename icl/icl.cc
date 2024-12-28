@@ -103,7 +103,8 @@ void ICL::write(Request &req, uint64_t &tick) {
 
   reqInternal.reqID = req.reqID;
   reqInternal.offset = req.offset;
-
+  reqInternal.deathTime = req.deathTime;
+  
   for (uint64_t i = 0; i < req.range.nlp; i++) {
     beginAt = tick;
 
@@ -118,8 +119,8 @@ void ICL::write(Request &req, uint64_t &tick) {
   }
 
   debugprint(LOG_ICL,
-             "WRITE | LCA %" PRIu64 " + %" PRIu64 " | %" PRIu64 " - %" PRIu64
-             " (%" PRIu64 ")",
+             "WRITE | DEATHTIME=0x%X | LCA %" PRIu64 " + %" PRIu64 " | %" PRIu64 " - %" PRIu64
+             " (%" PRIu64 ")",req.deathTime,
              req.range.slpn, req.range.nlp, tick, finishedAt,
              finishedAt - tick);
 

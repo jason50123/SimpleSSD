@@ -449,8 +449,8 @@ void Subsystem::read(Namespace *ns, uint64_t slba, uint64_t nlblk,
 }
 
 void Subsystem::write(Namespace *ns, uint64_t slba, uint64_t nlblk,
-                      DMAFunction &func, void *context) {
-  Request *req = new Request(func, context);
+                      uint64_t deathtime, DMAFunction &func, void *context) {
+  Request *req = new Request(func, context,deathtime);
   DMAFunction doWrite = [this](uint64_t, void *context) {
     auto req = (Request *)context;
 
@@ -460,7 +460,6 @@ void Subsystem::write(Namespace *ns, uint64_t slba, uint64_t nlblk,
   };
 
   convertUnit(ns, slba, nlblk, *req);
-
   execute(CPU::NVME__SUBSYSTEM, CPU::CONVERT_UNIT, doWrite, req);
 }
 
